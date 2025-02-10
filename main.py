@@ -19,3 +19,15 @@ processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base
 blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
 blip_model.eval()
 
+# Load GPT-2 for caption refinement
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+gpt2_model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
+gpt2_model.eval()
+
+# Define image preprocessing
+transform = transforms.Compose([
+    transforms.Resize((384, 384)),
+    transforms.ToTensor(),
+])
+
+
