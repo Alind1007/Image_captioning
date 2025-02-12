@@ -47,7 +47,6 @@ def download_image(image_url):
         print(f"❌ Error: Could not download image! {e}")
         return None
 
-
 # Function to generate captions using BLIP
 def generate_blip_caption(image_path):
     if not os.path.exists(image_path):
@@ -59,3 +58,16 @@ def generate_blip_caption(image_path):
     plt.imshow(image)
     plt.axis("off")
     plt.show()
+    
+    # Extract features and generate caption using BLIP
+    inputs = processor(images=image, return_tensors="pt").to(device)
+    with torch.no_grad():
+        blip_features = blip_model.generate(**inputs)
+    
+    # Decode BLIP output
+    blip_caption = processor.decode(blip_features[0], skip_special_tokens=True)
+    
+    print("\n📌 *BLIP Initial Caption:*", blip_caption)
+    return blip_caption
+
+
