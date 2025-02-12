@@ -30,4 +30,32 @@ transform = transforms.Compose([
     transforms.ToTensor(),
 ])
 
+# Function to download and save an image from a URL
+def download_image(image_url):
+    try:
+        response = requests.get(image_url, stream=True)
+        response.raise_for_status()  # Check if request was successful
+        img = Image.open(BytesIO(response.content))
+        
+        # Save image locally
+        image_path = "downloaded_image.jpg"
+        img.save(image_path)
 
+        print(f"✅ Image downloaded successfully: {image_path}")
+        return image_path  # Return local path
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error: Could not download image! {e}")
+        return None
+
+
+# Function to generate captions using BLIP
+def generate_blip_caption(image_path):
+    if not os.path.exists(image_path):
+        print("❌ Error: Image file not found!")
+        return None
+    
+    # Load and display image
+    image = Image.open(image_path).convert("RGB")
+    plt.imshow(image)
+    plt.axis("off")
+    plt.show()
