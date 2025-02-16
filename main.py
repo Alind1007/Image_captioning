@@ -70,4 +70,36 @@ def generate_blip_caption(image_path):
     print("\n📌 *BLIP Initial Caption:*", blip_caption)
     return blip_caption
 
+# Function to refine the caption using GPT-2
+def refine_caption(blip_caption):
+    if blip_caption is None:
+        return "❌ Error: No caption available to refine!"
 
+    input_text = "Refine this caption: " + blip_caption
+    input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
+
+    with torch.no_grad():
+        output = gpt2_model.generate(input_ids, max_length=50, num_beams=5, early_stopping=True)
+
+    refined_caption = tokenizer.decode(output[0], skip_special_tokens=True).replace("Refine this caption:", "").strip()
+
+    print("\n📌 *Final Refined Caption (GPT-2):*", refined_caption)
+    return refined_caption
+
+# Get user input (URL or Google Drive file path)
+image_input = input("Enter the path to an image (Google Drive Path or Online URL): ")
+
+# Check if the input is a URL
+if image_input.startswith("http"):
+    image_path = download_image(image_input)  # Download and get the local path
+elif image_input.startswith("/content/drive"):
+    image_path = image_input  # Directly use the Google Drive path
+else:
+    image_path = image_input  # Assume it's a local file path
+
+# Generate caption if the image exists
+if image_path and os.path.exists(image_path):
+    blip_caption = generate_blip_caption(image_path)
+    refined_caption = refine_caption(blip_caption)
+else:
+    print("❌ Error: Image file not found!")
