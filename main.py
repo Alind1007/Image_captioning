@@ -1,105 +1,200 @@
-import torch
-import torchvision.transforms as transforms
-import matplotlib.pyplot as plt
 import os
-import requests
-from io import BytesIO
+import fitz  # PyMuPDF for text and image extraction
+import re
+import io
 from PIL import Image
-from google.colab import drive
-from transformers import BlipProcessor, BlipForConditionalGeneration, GPT2LMHeadModel, GPT2Tokenizer
+from playsound import playsound
+import pytesseract
+from equation_to_text import MathToSpeech  # Import MathToSpeech class
 
-# Mount Google Drive (for accessing Drive images)
-drive.mount('/content/drive')
 
-# Use GPU if available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import torch
+import soundfile as sf
+import matplotlib.pyplot as plt
+from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 
-# Load BLIP model for feature extraction
-processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
-blip_model.eval()
+# Load the processor, model, and vocoder from Hugging Face
+processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
+model = SpeechT5ForTextToSpeech.from_pretrained("Atrishi/speecht5_tts_voxpopuli_nl")
+vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan")
 
-# Load GPT-2 for caption refinement
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-gpt2_model = GPT2LMHeadModel.from_pretrained("gpt2").to(device)
-gpt2_model.eval()
+# Generate a default speaker embedding (Neutral speaker)
+speaker_embeddings = torch.zeros((1, 512))  # Assuming the model expects (1, 512) shape
 
-# Define image preprocessing
-transform = transforms.Compose([
-    transforms.Resize((384, 384)),
-    transforms.ToTensor(),
-])
 
-# Function to download and save an image from a URL
-def download_image(image_url):
-    try:
-        response = requests.get(image_url, stream=True)
-        response.raise_for_status()  # Check if request was successful
-        img = Image.open(BytesIO(response.content))
-        
-        # Save image locally
-        image_path = "downloaded_image.jpg"
-        img.save(image_path)
 
-        print(f"✅ Image downloaded successfully: {image_path}")
-        return image_path  # Return local path
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error: Could not download image! {e}")
-        return None
+def process_text(text, output_file="output.wav"):
+    """
+    Converts input text to speech and saves it as a WAV file.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Process text input
+    #model=model.to(device)
+    inputs = processor(text=text, return_tensors="pt").to(device)
 
-# Function to generate captions using BLIP
-def generate_blip_caption(image_path):
-    if not os.path.exists(image_path):
-        print("❌ Error: Image file not found!")
-        return None
-    
-    # Load and display image
-    image = Image.open(image_path).convert("RGB")
-    plt.imshow(image)
-    plt.axis("off")
+    # Generate spectrogram
+    spectrogram = model.generate_speech(inputs["input_ids"], speaker_embeddings)
+
+    # Visualize spectrogram
+    plt.figure()
+    plt.imshow(spectrogram.cpu().T, aspect="auto", origin="lower")
+    plt.colorbar()
+    plt.title("Generated Speech Spectrogram")
     plt.show()
-    
-    # Extract features and generate caption using BLIP
-    inputs = processor(images=image, return_tensors="pt").to(device)
+
+    # Convert spectrogram to waveform
     with torch.no_grad():
-        blip_features = blip_model.generate(**inputs)
+        speech = vocoder(spectrogram)
+
+    # Save audio file
+    sf.write(output_file, speech.cpu().numpy(), samplerate=16000)
+    print(f"Speech saved as {output_file}")
+
+    return output_file  # Return filename
+
+
+# Create an instance of MathToSpeech
+math_to_speech = MathToSpeech()
+
+#C:\Users\atris\Downloads\math_equations.pdf
+#C:\Users\atris\Downloads\2025CSN362_L6 1.pdf
+def process_document(file_path):
+    """
+    Processes a document, extracts text, handles images and equations, and maintains structure.
+    """
+    extracted_text = []
     
-    # Decode BLIP output
-    blip_caption = processor.decode(blip_features[0], skip_special_tokens=True)
+    try:
+        doc = fitz.open(file_path)
+    except Exception as e:
+        print(f"Error opening file: {e}")
+        return None
+
+    for page_num, page in enumerate(doc):
+        # Get the text blocks (this includes text along with their coordinates)
+        text_blocks = page.get_text("dict")["blocks"]
+        
+        # Get the images from the page (with coordinates)
+        images = page.get_images(full=True)
+
+        # Merge text and images by their position on the page
+        elements = []
+
+        # Extract and sort text elements
+        for block in text_blocks:
+            #print("DEBUG BLOCK:", block)  # Debugging
+            
+            if "lines" in block:  # Check if text lines exist
+                text_content = "\n".join(
+                    span["text"] for line in block["lines"] if "spans" in line for span in line["spans"]
+                )
+                elements.append({"type": "text", "content": text_content, "y_pos": block["bbox"][1]})
+
+        # Extract and sort image elements
+        for img_index, img in enumerate(images):
+            xref = img[0]
+            base_image = doc.extract_image(xref)
+            image_bytes = base_image["image"]
+            image = Image.open(io.BytesIO(image_bytes))
+
+            # We use the Y-coordinate of the image for sorting
+            img_y_pos = img[1]  # Image y-coordinate
+            elements.append({"type": "image", "image": image, "y_pos": img_y_pos})
+
+        # Sort elements by their Y-coordinate (preserve document order)
+        elements.sort(key=lambda e: e["y_pos"])
+
+        # Process text and images in order
+        for element in elements:
+            if element["type"] == "text":
+                text = element["content"]
+                
+                # Detect and replace LaTeX equations
+                latex_equations = re.findall(r"\$.*?\$|\\\(.*?\\\)|\\\[.*?\\\]", text)
+                for eq in latex_equations:
+                    text = text.replace(eq, f"[Equation]: {math_to_speech.process_latex_equation(eq)}")
+                
+                # Detect and replace text-based mathematical equations
+                text_equations = re.findall(r"[A-Za-z0-9\s\+\-\*/\^=<>,;:!@#\$%&\(\)\{\}\[\]_]+", text)
+                text_equations = [eq.strip() for eq in text_equations if eq.strip()]
+                for eq in text_equations:
+                    text = text.replace(eq, f"[Equation]: {math_to_speech.process_text_equation(eq)}")
+            
+                extracted_text.append(text)
+
+            elif element["type"] == "image":
+                # Process image (convert equation or caption)
+                extracted_text.append(math_to_speech.process_image(element["image"]))
+
+    # Combine all extracted text and generate speech
+    final_text = '\n'.join(extracted_text)
     
-    print("\n📌 *BLIP Initial Caption:*", blip_caption)
-    return blip_caption
+    print(final_text)
+    if final_text.strip():
+        return process_text(final_text)  # Convert extracted text to speech
+    else:
+        print("No valid text extracted from the document.")
+        return None
 
-# Function to refine the caption using GPT-2
-def refine_caption(blip_caption):
-    if blip_caption is None:
-        return "❌ Error: No caption available to refine!"
 
-    input_text = "Refine this caption: " + blip_caption
-    input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
 
-    with torch.no_grad():
-        output = gpt2_model.generate(input_ids, max_length=50, num_beams=5, early_stopping=True)
+def process_input(input_data, input_type):
+    """
+    Processes user input: direct text or a document.
+    """
+    if input_type == 'text':
+        return process_text(input_data)
+    elif input_type == 'document':
+        return process_document(input_data)
+    else:
+        raise ValueError("Invalid input type. Use 'text' or 'document'.")
 
-    refined_caption = tokenizer.decode(output[0], skip_special_tokens=True).replace("Refine this caption:", "").strip()
+import pygame
 
-    print("\n📌 *Final Refined Caption (GPT-2):*", refined_caption)
-    return refined_caption
 
-# Get user input (URL or Google Drive file path)
-image_input = input("Enter the path to an image (Google Drive Path or Online URL): ")
-
-# Check if the input is a URL
-if image_input.startswith("http"):
-    image_path = download_image(image_input)  # Download and get the local path
-elif image_input.startswith("/content/drive"):
-    image_path = image_input  # Directly use the Google Drive path
-else:
-    image_path = image_input  # Assume it's a local file path
-
-# Generate caption if the image exists
-if image_path and os.path.exists(image_path):
-    blip_caption = generate_blip_caption(image_path)
-    refined_caption = refine_caption(blip_caption)
-else:
-    print("❌ Error: Image file not found!")
+if __name__ == "__main__":
+    input_type = input("Enter input type (text/document): ").strip().lower()
+    
+    if input_type == "text":
+        text_input = input("Enter text: ")
+        audio_output = process_input(text_input, 'text')  # Generate speech
+        
+        # Check if the file exists before playing
+        if os.path.exists(audio_output):
+            pygame.mixer.init()
+            pygame.mixer.music.load(audio_output)
+            pygame.mixer.music.play()
+            
+            print("Playing audio...")  # Indicate audio is playing
+            
+            while pygame.mixer.music.get_busy():  # Wait for playback to finish
+                pygame.time.Clock().tick(10)
+            
+            print("Playback finished.")
+        else:
+            print(f"Audio file {audio_output} not found.")
+        
+    elif input_type == "document":
+        file_path = input("Enter document file path: ").strip()
+        audio_output = process_input(file_path, 'document')
+        # Play the generated audio
+        
+        # Check if the file exists before playing
+        if os.path.exists(audio_output):
+            pygame.mixer.init()
+            pygame.mixer.music.load(audio_output)
+            pygame.mixer.music.play()
+            
+            print("Playing audio...")  # Indicate audio is playing
+            
+            while pygame.mixer.music.get_busy():  # Wait for playback to finish
+                pygame.time.Clock().tick(10)
+            
+            print("Playback finished.")
+        else:
+            print(f"Audio file {audio_output} not found.")
+        
+    else:
+        print("Invalid input type. Please enter 'text' or 'document'.")
+    
+    print("Speech generation completed.")
