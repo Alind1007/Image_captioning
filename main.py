@@ -254,41 +254,82 @@ def process_document(file_path):
         extracted_text = []
         doc = fitz.open(file_path)
         
-        for page in doc:
-            elements = []
-            # Process text blocks
-            for block in page.get_text("dict")["blocks"]:
-                if "lines" in block:
-                    text_content = "\n".join(
-                        span["text"] for line in block["lines"] if "spans" in line for span in line["spans"]
-                    )
-                    elements.append({"type": "text", "content": text_content, "y_pos": block["bbox"][1]})
+        # Get the images from the page (with coordinates)
+        images = page.get_images(full=True)
+
+        # Merge text and images by their position on the page
+        elements = []
+
+        # Extract and sort text elements
+        for block in text_blocks:
+            #print("DEBUG BLOCK:", block)  # Debugging
             
-            # Process images
-            for img in page.get_images(full=True):
-                xref = img[0]
-                image = Image.open(io.BytesIO(doc.extract_image(xref)["image"]))
-                elements.append({"type": "image", "image": image, "y_pos": img[1]})
+            if "lines" in block:  # Check if text lines exist
+                text_content = "\n".join(
+                    span["text"] for line in block["lines"] if "spans" in line for span in line["spans"]
+                )
+                elements.append({"type": "text", "content": text_content, "y_pos": block["bbox"][1]})
+
+        image_blocks = [b for b in text_blocks if b.get("type") == 1]
+        image_refs = page.get_images(full=True)
+
+        # Ensure equal length (otherwise fallback or warn)
+        if len(image_blocks) == len(image_refs):
+            for block, img_info in zip(image_blocks, image_refs):
+                xref = img_info[0]
+                y_pos = block["bbox"][1]  # Top Y position of image
+
+                try:
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image = Image.open(io.BytesIO(image_bytes))
+
+                    elements.append({"type": "image", "image": image, "y_pos": y_pos})
+                except Exception as e:
+                    print(f"Failed to extract image at xref {xref}: {e}")
+        else:
+            print("Warning: Mismatch between image blocks and xrefs. Skipping image-position linking for this page.")
+
+
+        # Sort elements by their Y-coordinate (preserve document order)
+        elements.sort(key=lambda e: e["y_pos"])
+
+        # Process text and images in order
+        for element in elements:
+            if element["type"] == "text":
+                #print("TEXT")
+                text = element["content"]
+                
+                # Detect and replace LaTeX equations
+                latex_equations = re.findall(r"\$.*?\$|\\\(.*?\\\)|\\\[.*?\\\]", text)
+                for eq in latex_equations:
+                    text = text.replace(eq, f" {math_to_speech.process_latex_equation(eq)}")
+                
+                # Detect and replace text-based mathematical equations
+                text_equations = re.findall(r"[A-Za-z0-9\s\+\-\*/\^=<>,;:!@#\$%&\(\)\{\}\[\]_]+", text)
+                text_equations = [eq.strip() for eq in text_equations if eq.strip()]
+                for eq in text_equations:
+                    text = text.replace(eq, f" {math_to_speech.process_text_equation(eq)}")
             
-            # Sort and process elements
-            elements.sort(key=lambda e: e["y_pos"])
-            for element in elements:
-                if element["type"] == "text":
-                    text = element["content"]
-                    # Process equations
-                    for eq in re.findall(r"\$.*?\$|\\\(.*?\\\)|\\\[.*?\\\]", text):
-                        text = text.replace(eq, f" {math_to_speech.process_latex_equation(eq)}")
-                    for eq in [eq.strip() for eq in re.findall(r"[A-Za-z0-9\s\+\-\*/\^=<>,;:!@#\$%&\(\)\{\}\[\]_]+", text) if eq.strip()]:
-                        text = text.replace(eq, f" {math_to_speech.process_text_equation(eq)}")
-                    extracted_text.append(text)
-                else:
-                    extracted_text.append(math_to_speech.process_image(element["image"]))
-        
-        final_text = math_to_speech.process_numbers('\n'.join(extracted_text))
-        return final_text if final_text.strip() else None
-        
-    except Exception as e:
-        print(f"\nError processing document: {str(e)}")
+                extracted_text.append(text)
+
+            elif element["type"] == "image":
+                #print("IMAGE")
+                # Process image (convert equation or caption)
+                extracted_text.append(math_to_speech.process_image(element["image"]))
+
+
+    # Combine all extracted text and generate speech
+    final_text = '\n'.join(extracted_text)
+    
+    #convert numbers to text
+    final_text=math_to_speech.process_numbers(final_text)
+    
+    print(final_text)
+    if final_text.strip():
+        return process_text(final_text)  # Convert extracted text to speech
+    else:
+        print("No valid text extracted from the document.")
         return None
 
 def play_audio(audio_file):
