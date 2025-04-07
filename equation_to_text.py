@@ -6,12 +6,20 @@ import io
 import numpy as np
 
 from image_to_text import convert_image_to_text  # Updated imports
+from num2words import num2words
 
 # # Configure Tesseract path (update this based on your system)
 # pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
 # Initialize EasyOCR reader once
 reader = easyocr.Reader(['en'])
+
+def convert_numbers_to_words(match):
+    num_str = match.group()
+    try:
+        return num2words(int(num_str))
+    except ValueError:
+        return num_str  # fallback if conversion fails
 
 class MathToSpeech:
     def __init__(self):
@@ -320,7 +328,10 @@ class MathToSpeech:
         else:
             # If neither LaTeX nor text-based, return the raw extracted text
             return equation_text
-
+    
+    def process_numbers(self,text):
+        text = re.sub(r'\b\d+\b', convert_numbers_to_words, text)
+        return text
 
 
     # def extract_equations_from_pdf(self, pdf_path):

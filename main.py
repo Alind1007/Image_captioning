@@ -112,13 +112,13 @@ def process_document(file_path):
                 # Detect and replace LaTeX equations
                 latex_equations = re.findall(r"\$.*?\$|\\\(.*?\\\)|\\\[.*?\\\]", text)
                 for eq in latex_equations:
-                    text = text.replace(eq, f"[Equation]: {math_to_speech.process_latex_equation(eq)}")
+                    text = text.replace(eq, f" {math_to_speech.process_latex_equation(eq)}")
                 
                 # Detect and replace text-based mathematical equations
                 text_equations = re.findall(r"[A-Za-z0-9\s\+\-\*/\^=<>,;:!@#\$%&\(\)\{\}\[\]_]+", text)
                 text_equations = [eq.strip() for eq in text_equations if eq.strip()]
                 for eq in text_equations:
-                    text = text.replace(eq, f"[Equation]: {math_to_speech.process_text_equation(eq)}")
+                    text = text.replace(eq, f" {math_to_speech.process_text_equation(eq)}")
             
                 extracted_text.append(text)
 
@@ -126,8 +126,12 @@ def process_document(file_path):
                 # Process image (convert equation or caption)
                 extracted_text.append(math_to_speech.process_image(element["image"]))
 
+
     # Combine all extracted text and generate speech
     final_text = '\n'.join(extracted_text)
+    
+    #convert numbers to text
+    final_text=math_to_speech.process_numbers(final_text)
     
     print(final_text)
     if final_text.strip():
