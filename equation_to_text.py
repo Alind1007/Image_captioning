@@ -5,14 +5,17 @@ from PIL import Image
 import io
 import numpy as np
 
+from pix2tex.cli import LatexOCR
+
 from image_to_text import convert_image_to_text  # Updated imports
 from num2words import num2words
 
 # # Configure Tesseract path (update this based on your system)
 # pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
-# Initialize EasyOCR reader once
-reader = easyocr.Reader(['en'])
+# # Initialize EasyOCR reader once
+# reader = easyocr.Reader(['en'])
+latex_ocr = LatexOCR()
 
 def convert_numbers_to_words(match):
     num_str = match.group()
@@ -307,27 +310,24 @@ class MathToSpeech:
 
     
     def process_image(self, image):
-        """Extract and process equation from image using EasyOCR."""
-        
-        # Convert PIL Image to NumPy array if needed
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-        # Use EasyOCR to extract text from image
-        extracted_text = reader.readtext(image, detail=0)  # Get text without bounding boxes
-        equation_text = " ".join(extracted_text).strip()  # Join extracted text
+        """Extract and process equation from image using EasyOCR or pix2tex."""
 
-        # Fix OCR mistakes (you can define a correction function if needed)
+        # ✅ Keep the image in PIL format; don't convert to NumPy
+        # Use pix2tex to extract LaTeX from image
+        extracted_text = latex_ocr(image)  # Use PIL image directly
+        equation_text = " ".join(extracted_text).strip()
+
+        # Fix OCR mistakes (optional)
         equation_text = self.correct_ocr_errors(equation_text)
 
         # Check if it looks like LaTeX
         if re.search(r"\\[a-zA-Z]+", equation_text):
             return self.process_latex_equation(equation_text)
-        # Check if it's a text-based equation (contains mathematical symbols)
         elif any(op in equation_text for op in ['+', '-', '*', '/', '=', '^', '<', '>', '≤', '≥', '≠', '≈', '∑', '∫', '∏']):
             return self.process_text_equation(equation_text)
         else:
-            # If neither LaTeX nor text-based, return the raw extracted text
             return equation_text
+
     
     def process_numbers(self,text):
         text = re.sub(r'\b\d+\b', convert_numbers_to_words, text)
