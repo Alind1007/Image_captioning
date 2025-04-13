@@ -211,6 +211,7 @@ from PIL import Image
 import pytesseract
 from equation_to_text import MathToSpeech
 import pygame
+import numpy as np
 import torch
 import soundfile as sf
 import matplotlib.pyplot as plt
@@ -224,22 +225,52 @@ vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan")
 speaker_embeddings = torch.zeros((1, 512))
 math_to_speech = MathToSpeech()
 
-def process_text(text, output_file="output.wav"):
-    """Convert text to speech and save as WAV file."""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    inputs = processor(text=text, return_tensors="pt").to(device)
-    spectrogram = model.generate_speech(inputs["input_ids"], speaker_embeddings)
-    
-    # plt.figure()
-    # plt.imshow(spectrogram.cpu().T, aspect="auto", origin="lower")
-    # plt.colorbar()
-    # plt.title("Generated Speech Spectrogram")
-    # plt.show()
+def split_text_into_chunks(text, max_words=30):
+    """Split text into chunks of `max_words` length at sentence boundaries."""
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    current_chunk = ""
 
-    with torch.no_grad():
-        speech = vocoder(spectrogram)
-    print("Speech shape:", speech.shape)
-    sf.write(output_file, speech.cpu().numpy(), samplerate=16000)
+    for sentence in sentences:
+        words_in_sentence = sentence.split()
+        total_words = len(current_chunk.split()) + len(words_in_sentence)
+
+        if total_words > max_words:
+            if current_chunk.strip():
+                chunks.append(current_chunk.strip())
+            current_chunk = sentence
+        else:
+            current_chunk += " " + sentence
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+def process_text(text, output_file="output.wav", chunk_size=30):
+    """Convert long text to speech and save as WAV file."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    audio_segments = []
+
+    # Split text into chunks at sentence boundaries or word boundaries
+    chunks = split_text_into_chunks(text, max_words=chunk_size)
+
+    print(f"Total chunks: {len(chunks)}")
+
+    for i, chunk in enumerate(chunks):
+        print(f"\n[Chunk {i+1}] Synthesizing: {chunk[:60]}...")
+        inputs = processor(text=chunk, return_tensors="pt").to(device)
+        spectrogram = model.generate_speech(inputs["input_ids"], speaker_embeddings)
+
+        with torch.no_grad():
+            speech = vocoder(spectrogram)
+
+        audio_segments.append(speech.cpu().numpy())
+
+    # Concatenate all chunks into one waveform
+    full_audio = np.concatenate(audio_segments, axis=-1)
+    sf.write(output_file, full_audio, samplerate=16000)
+    print(f"\nFull audio saved to {output_file}")
     return output_file
 
 
