@@ -283,8 +283,6 @@ def process_text(text, output_file=None, chunk_size=30):
     return output_file
 
 
-
-
 def process_document(file_path):
     """Process document and extract text with equations."""
     try:
