@@ -209,6 +209,7 @@ import re
 import io
 from PIL import Image
 import pytesseract
+import uuid
 from equation_to_text import MathToSpeech
 import pygame
 import numpy as np
@@ -247,10 +248,16 @@ def split_text_into_chunks(text, max_words=30):
 
     return chunks
 
-def process_text(text, output_file="output.wav", chunk_size=30):
+import uuid
+
+def process_text(text, output_file=None, chunk_size=30):
     """Convert long text to speech and save as WAV file."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     audio_segments = []
+
+    # Generate a unique output file if not provided
+    if output_file is None:
+        output_file = f"output_{uuid.uuid4().hex[:8]}.wav"
 
     # Split text into chunks at sentence boundaries or word boundaries
     chunks = split_text_into_chunks(text, max_words=chunk_size)
@@ -265,13 +272,16 @@ def process_text(text, output_file="output.wav", chunk_size=30):
         with torch.no_grad():
             speech = vocoder(spectrogram)
 
-        audio_segments.append(speech.cpu().numpy())
+        audio_segments.append(speech.squeeze().cpu().numpy())
 
     # Concatenate all chunks into one waveform
     full_audio = np.concatenate(audio_segments, axis=-1)
+
+    # Save final audio
     sf.write(output_file, full_audio, samplerate=16000)
     print(f"\nFull audio saved to {output_file}")
     return output_file
+
 
 
 
@@ -470,3 +480,4 @@ if __name__ == "__main__":
         print("\n\nProgram interrupted. Goodbye!")
     finally:
         pygame.mixer.quit()
+        
