@@ -43,27 +43,37 @@ def download_image(image_url):
         print(f"❌ Error: Could not download image! {e}")
         return None
 
-# Function to generate captions using BLIP
-def generate_blip_caption(image_path):
-    if not os.path.exists(image_path):
-        print("❌ Error: Image file not found!")
+def generate_blip_caption(image):
+    """
+    Generate a caption for a given PIL image using BLIP.
+
+    Parameters:
+        image (PIL.Image): Input image.
+
+    Returns:
+        str: Generated caption.
+    """
+    if not isinstance(image, Image.Image):
+        print("❌ Error: Input must be a PIL.Image object.")
         return None
-    
-    # Load and display image
-    image = Image.open(image_path).convert("RGB")
+
+    # Convert to RGB if not already
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    # Show image
     plt.imshow(image)
     plt.axis("off")
     plt.show()
-    
-    # Extract features and generate caption using BLIP
+
+    # Generate caption
     inputs = processor(images=image, return_tensors="pt").to(device)
     with torch.no_grad():
         blip_features = blip_model.generate(**inputs)
-    
-    # Decode BLIP output
+
     blip_caption = processor.decode(blip_features[0], skip_special_tokens=True)
-    
-    print("\n📌 *BLIP Initial Caption:*", blip_caption)
+
+    print("\n📌 *BLIP Caption:*", blip_caption)
     return blip_caption
 
 # Function to refine the caption using GPT-2
@@ -87,6 +97,7 @@ def convert_image_to_text(image):
     Extracts text or generates captions from an image.
     """
     blip_caption = generate_blip_caption(image)
-    refined_caption = refine_caption(blip_caption)
-    return refined_caption
+    # refined_caption = refine_caption(blip_caption)
+    # print(refined_caption.size())
+    return blip_caption
 

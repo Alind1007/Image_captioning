@@ -308,25 +308,37 @@ class MathToSpeech:
             text = text.replace(wrong, correct)
         return text
 
+    def is_valid_latex(self, text):
+        if not text or len(text) > 200:
+            return False
+        if text.count('(') != text.count(')') or text.count('{') != text.count('}'):
+            return False
+        if not re.search(r"\\[a-zA-Z]+", text):  # No LaTeX commands
+            return False
+        if not any(op in text for op in ['+', '-', '=', '\\frac', '\\sum', '\\int']):  # No important math stuff
+            return False
+        # New: Reject if too many spaces (broken OCRs are full of spaces)
+        if text.count(' ') > len(text) * 0.3:
+            return False
+        # New: Reject if too many single characters separated by spaces
+        if re.search(r'(\\[a-z])(\s)', text):  # Like \s \c \r
+            return False
+        return True
+
+
     
     def process_image(self, image):
-        """Extract and process equation from image using EasyOCR or pix2tex."""
-
-        # ✅ Keep the image in PIL format; don't convert to NumPy
-        # Use pix2tex to extract LaTeX from image
-        extracted_text = latex_ocr(image)  # Use PIL image directly
+        extracted_text = latex_ocr(image)
         equation_text = " ".join(extracted_text).strip()
-
-        # Fix OCR mistakes (optional)
         equation_text = self.correct_ocr_errors(equation_text)
 
-        # Check if it looks like LaTeX
-        if re.search(r"\\[a-zA-Z]+", equation_text):
+        if self.is_valid_latex(equation_text):
             return self.process_latex_equation(equation_text)
-        elif any(op in equation_text for op in ['+', '-', '*', '/', '=', '^', '<', '>', '≤', '≥', '≠', '≈', '∑', '∫', '∏']):
+        elif any(op in equation_text for op in ['+', '-', '*', '/', '=', '^', '<', '>', '≤', '≥', '≠', '≈', '∑', '∫', '∏']) and len(equation_text) < 150 and not equation_text.startswith("\\"):
             return self.process_text_equation(equation_text)
         else:
-            return equation_text
+            return convert_image_to_text(image)
+
 
     
     def process_numbers(self,text):

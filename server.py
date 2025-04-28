@@ -18,6 +18,10 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+@app.route('/')
+def index():
+    return jsonify({'message': 'hi ✅'})
+
 @app.route('/api/tts', methods=['POST'])
 def text_to_speech():
     """Convert text to speech and return the audio file."""

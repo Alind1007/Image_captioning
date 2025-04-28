@@ -223,8 +223,21 @@ pygame.mixer.init()
 processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
 model = SpeechT5ForTextToSpeech.from_pretrained("Atrishi/speecht5_tts_voxpopuli_nl")
 vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan")
-speaker_embeddings = torch.zeros((1, 512))
+speaker_embeddings=torch.zeros((1,512))
 math_to_speech = MathToSpeech()
+
+#from TTS.api import TTS
+
+# # Load XTTS model (multilingual + multi-speaker)
+# tts = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+
+# # Path to your reference audio sample
+# reference_audio_path = r"C:\Users\atris\Downloads\Siri_example.mp3"
+
+# # Extract speaker embedding from sample
+# speaker_latents = tts.get_conditioning_latents(audio_path="reference.wav")
+# speaker_embedding = speaker_latents["c_latent"]  # This is the actual 512-dim vector
+# math_to_speech = MathToSpeech()
 
 def split_text_into_chunks(text, max_words=30):
     """Split text into chunks of `max_words` length at sentence boundaries."""
@@ -359,12 +372,14 @@ def process_document(file_path):
 
                 elif element["type"] == "image":
                     # Process image (convert equation or caption)
+                    print("Image found")
                     extracted_text.append(math_to_speech.process_image(element["image"]))
 
 
         # Combine all extracted text and generate speech
         final_text = '\n'.join(extracted_text)
         
+        print(final_text)
         # Convert numbers to text
         final_text = math_to_speech.process_numbers(final_text)
         
